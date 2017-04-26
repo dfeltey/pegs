@@ -114,7 +114,7 @@
           (define fst (hash-ref peg-hash (cons (sub1 line) (sub1 col))))
           (define snd (hash-ref peg-hash (cons (add1 line) (add1 col))))
           `(connect-b ,fst ,snd)]))))
-  (datum->syntax #f `(,#'module ,#'source racket/base ,@peg-stx ,@connections-stx)))
+  (datum->syntax #f `(,#'module ,#'source pegs ,@peg-stx ,@connections-stx)))
     
    
   
