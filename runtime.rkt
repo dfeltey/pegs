@@ -15,15 +15,41 @@
 (define (initialize-game) (new game%))
 (define (run-game game) (send game run-game))
 
+
+(define game-canvas%
+  (class canvas%
+    (init-field game)
+    (super-new)
+
+    (define/override (on-subwindow-event window evt)
+      (cond
+        [(send evt button-down? 'left)
+         (send game handle-button-down (send evt get-x) (send evt get-y))
+         (send this refresh)
+         #t]
+        [else #f]))))
+
 (define game%
   (class object%
     (super-new)
 
     (define the-pegs '())
     (define position-map #f)
+    (define selected #f)
+    (define game-canvas #f)
+    (define offset 0)
     
     (define/public (add-peg p)
       (set! the-pegs (cons p the-pegs)))
+
+    (define/public (handle-button-down x y)
+      (define col (floor (sub1 (/ x COORDINATE-SIZE))))
+      (define row (+ offset (floor (sub1 (/ y COORDINATE-SIZE)))))
+      (set! selected
+            (or
+             (for/or ([p (in-list the-pegs)])
+               (send p handle-click row col selected))
+             selected)))
 
     (define/public (run-game)
       (when (not (empty? the-pegs))
@@ -39,12 +65,12 @@
                     (if max-row (max max-row row) row)
                     (if min-col (min min-col col) col)
                     (if max-col (max max-col col) col))))
+        (set! offset min-row)
         
         (define num-rows (+ 3 (- max-row min-row)))
         (define num-cols (+ 3 (- max-col min-col)))
         (define the-width (* num-cols COORDINATE-SIZE))
         (define the-height (* num-rows COORDINATE-SIZE))
-        
         (define the-frame
           (new frame%
                [label "pegs"]
@@ -53,8 +79,9 @@
                [min-width the-width]
                [min-height the-height]))
         (define the-canvas
-          (new canvas%
+          (new game-canvas%
                [parent the-frame]
+               [game this]
                [paint-callback
                 (λ (canvas dc)
                   (for ([peg (in-list the-pegs)])
@@ -84,6 +111,60 @@
        (λ (current) (cons p current))
        '()))
 
+    (define/public (unselect)
+      (set! selected? #f))
+
+    (define/public (flip!)
+      (set! filled? (not filled?)))
+    (define/public (is-filled?)
+      filled?)
+    (define/public (get-connections dir)
+      (hash-ref connections dir '()))
+
+    (define (get-dir x1 y1 x2 y2)
+      (cond
+        [(= x1 x2) 'h]
+        [(= y1 y2) 'v]
+        [(or (and (> x1 x2) (< y1 y2))
+             (and (< x1 x2) (> y1 y2)))
+         'f]
+        [(or (and (> x1 x2) (> y1 y2))
+             (and (< x1 x2) (< y1 y2)))
+         'b]
+        [else #f]))
+
+    (define/public (handle-click x y selected-peg)
+      (and (= x row) (= y col)
+           (cond
+        [filled?
+         (and selected-peg (send selected-peg unselect))
+         (set! selected? #t)
+         this]
+        [selected-peg
+         (define that-x (get-field row selected-peg))
+         (define that-y (get-field col selected-peg))
+         (define dir (get-dir x y that-x that-y))
+         (cond
+           [dir
+            (define this-connections (get-connections dir))
+            (define that-connections (send selected-peg get-connections dir))
+            (define common (set-intersect this-connections that-connections))
+            (cond
+              [(not (empty? common))
+               (define middle (first common))
+               (cond
+                 [(send middle is-filled?)
+                  (flip!) ;; fill this one ...
+                  (set! selected? #t) ;; select this one ...
+                  (send middle flip!) ;; remove the middle one
+                  (send selected-peg unselect)
+                  (send selected-peg flip!) ;; remove the one from before
+                  this]
+                 [else #f])]
+              [else #f])]
+           [else #f])]
+        [else #f])))
+
     (define/public (draw dc row-offset col-offset)
       (send dc set-pen "black" 3 'solid)
       (define color
@@ -103,7 +184,7 @@
     (define/public (draw-connections dc row-offset col-offset)
       (define this-x (+ OFFSET (* COORDINATE-SIZE (add1 (- col col-offset)))))
       (define this-y (+ OFFSET (* COORDINATE-SIZE (add1 (- row row-offset)))))
-      (send dc set-pen "grey" 2 'solid)
+      (send dc set-pen "gray" 2 'solid)
       (for* ([(d ps) (in-hash connections)]
              [p (in-list ps)])
         (define that-x (+ OFFSET (* COORDINATE-SIZE (add1 (- (get-field col p) col-offset)))))
