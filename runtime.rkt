@@ -37,14 +37,15 @@
     (define position-map #f)
     (define selected #f)
     (define game-canvas #f)
-    (define offset 0)
+    (define y-offset 0)
+    (define x-offset 0)
     
     (define/public (add-peg p)
       (set! the-pegs (cons p the-pegs)))
 
     (define/public (handle-button-down x y)
-      (define col (floor (sub1 (/ x COORDINATE-SIZE))))
-      (define row (+ offset (floor (sub1 (/ y COORDINATE-SIZE)))))
+      (define col (+ x-offset (floor (sub1 (/ x COORDINATE-SIZE)))))
+      (define row (+ y-offset (floor (sub1 (/ y COORDINATE-SIZE)))))
       (set! selected
             (or
              (for/or ([p (in-list the-pegs)])
@@ -65,7 +66,8 @@
                     (if max-row (max max-row row) row)
                     (if min-col (min min-col col) col)
                     (if max-col (max max-col col) col))))
-        (set! offset min-row)
+        (set! y-offset min-row)
+        (set! x-offset min-col)
         
         (define num-rows (+ 3 (- max-row min-row)))
         (define num-cols (+ 3 (- max-col min-col)))
