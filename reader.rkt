@@ -2,7 +2,10 @@
 
 (require racket/syntax)
 
+(provide read-syntax)
+
 (define triangle
+  (open-input-string
 #<<>>
         O
        / \
@@ -14,7 +17,7 @@
  /   / \ / \   \
 @ - @ - @ - @ - @
 >>
-  )
+  ))
 
 #|
  Processing should return a list of the nodes,
@@ -29,6 +32,9 @@
 
 
 |#
+
+(define (read-syntax source in)
+  (parse-board source in))
 
 (struct peg (id filled?) #:transparent)
 (struct game (pegs connections) #:transparent)
@@ -56,23 +62,21 @@
 
 (define (build-identifier sym source line column position span)
   (datum->syntax #f sym (list source line column position span)))
-    
+
 
 (define (parse-board source
-                     board-str
+                     in
                      #:peg-char [peg-char #\@]
                      #:hole-char [hole-char #\O])
-    
-  (define board-port (open-input-string board-str))
-  (port-count-lines! board-port)
-  (define-values (start-line start-column start-pos) (port-next-location board-port))
+  (port-count-lines! in)
+  (define-values (start-line start-column start-pos) (port-next-location in))
   (define-values (pegs peg-hash connections)
     (let loop ([pegs '()]
                [peg-hash (hash)]
                [connections '()]
                [tag 0])
-      (define-values (line column pos) (port-next-location board-port))
-      (define c (read-char board-port))
+      (define-values (line column pos) (port-next-location in))
+      (define c (read-char in))
       (cond
         [(eof-object? c) (values (reverse pegs) peg-hash (reverse connections))]
         [(char-whitespace? c)
@@ -85,7 +89,7 @@
          (define peg-hash* (hash-set peg-hash (cons line column) id))
          (loop (cons spot pegs) peg-hash* connections (add1 tag))]
         [else (error 'parse-board "unexpected char in port: ~a" c)])))
-  (define-values (end-line end-column end-pos) (port-next-location board-port))
+  (define-values (end-line end-column end-pos) (port-next-location in))
   (define peg-stx
     (for/list ([p (in-list pegs)])
       (match-define (peg id filled?) p)
@@ -114,7 +118,13 @@
           (define fst (hash-ref peg-hash (cons (sub1 line) (sub1 col))))
           (define snd (hash-ref peg-hash (cons (add1 line) (add1 col))))
           `(connect-b ,fst ,snd)]))))
-  (datum->syntax #f `(,#'module ,#'source pegs ,@peg-stx ,@connections-stx)))
+  (define p-name (object-name in))
+  (define name (if (path? p-name)
+                   (let-values ([(base name dir?) (split-path p-name)])
+                     (string->symbol
+                      (path->string (path-replace-suffix name #""))))
+                   'anonymous))
+  (datum->syntax #f `(,#'module ,name pegs ,@peg-stx ,@connections-stx)))
     
    
   
