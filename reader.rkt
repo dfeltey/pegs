@@ -8,6 +8,96 @@
 (module+ test
   (require rackunit)
 
+  (define small-triangle
+    (open-input-string
+#<<>>
+        O
+       / \
+      @   @
+     / \ / \
+    @ - @ - @
+>>
+))
+(check-equal?
+ (syntax->datum (parse-board 'test small-triangle))
+ '(module anonymous pegs
+    (define-peg O0 8 1 #f)
+    (define-peg @0 6 3 #t)
+    (define-peg @1 10 3 #t)
+    (define-peg @2 4 5 #t)
+    (define-peg @3 8 5 #t)
+    (define-peg @4 12 5 #t)
+    (forward-connection 8 1 6 3)
+    (backward-connection 8 1 10 3)
+    (forward-connection 6 3 4 5)
+    (backward-connection 6 3 8 5)
+    (forward-connection 10 3 8 5)
+    (backward-connection 10 3 12 5)
+    (horizontal-connection 4 5 8 5)
+    (horizontal-connection 8 5 12 5)))
+
+  (define X
+    (open-input-string
+#<<>>
+    @ @
+     X
+    @ @
+>>
+  ))
+
+  (check-equal?
+   (syntax->datum (parse-board 'test X))
+   '(module anonymous pegs
+      (define-peg @0 4 1 #t)
+      (define-peg @1 6 1 #t)
+      (define-peg @2 4 3 #t)
+      (define-peg @3 6 3 #t)
+      (backward-connection 4 1 6 3)
+      (forward-connection 6 1 4 3)))
+
+  (define PLUS
+    (open-input-string
+#<<>>
+  @
+@ + @
+  @
+>>
+  ))
+
+    (check-equal?
+   (syntax->datum (parse-board 'test PLUS))
+   '(module anonymous pegs
+      (define-peg @0 2 1 #t)
+      (define-peg @1 0 2 #t)
+      (define-peg @2 4 2 #t)
+      (define-peg @3 2 3 #t)
+      (horizontal-connection 0 2 4 2)
+      (vertical-connection 2 1 2 3)))
+
+  (define LINE
+    (open-input-string
+#<<>>
+@
+|
+@
+|
+O
+>>
+  ))
+
+  (check-equal?
+   (syntax->datum (parse-board 'test LINE))
+   '(module anonymous pegs
+      (define-peg @0 0 1 #t)
+      (define-peg @1 0 3 #t)
+      (define-peg O0 0 5 #f)
+      (vertical-connection 0 1 0 3)
+      (vertical-connection 0 3 0 5)))
+
+  (check-exn (regexp "Unexpected pegs character: *")
+             (lambda ()
+               (parse-board 'test (open-input-string "*"))))
+
   (define triangle
     (open-input-string
 #<<>>
@@ -27,9 +117,6 @@
   (define CONNECTORS '(#\- #\/ #\\ #\| #\X #\+))
   (and (member c CONNECTORS) #t))
 
-(define (build-identifier sym source line column position span)
-  (datum->syntax #f sym (list source line column position span)))
-
 (define (get-connections connector)
   (case connector
     [(#\|) '(vertical-connection)]
@@ -44,7 +131,7 @@
     [(vertical-connection) (values 0 -1 0 1)]
     [(horizontal-connection) (values -2 0 2 0)]
     [(forward-connection) (values 1 -1 -1 1)]
-    [(backward-connection) (values 1 1 -1 -1)]))
+    [(backward-connection) (values -1 -1 1 1)]))
 
 (define (to-identifier sym name line col pos)
   (define stx-port (open-input-string (format "~s" sym)))
