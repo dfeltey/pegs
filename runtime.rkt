@@ -3,7 +3,9 @@
 (provide current-game
          initialize-game
          run-game
-         make-peg)
+         make-peg
+         connect-pegs
+         add-peg-to-game)
 
 (require racket/gui)
 
@@ -92,8 +94,16 @@
                     (send peg draw dc min-row min-col)))]))
         (send the-frame show #t)))))
 
-(define (make-peg row col filled?)
+(define (make-peg col row filled?)
   (new peg% [row row] [col col] [filled? filled?]))
+
+(define (add-peg-to-game peg)
+  (send (current-game) add-peg peg))
+
+(define (connect-pegs p1 p2 dir)
+  (begin
+    (send p1 add-connection p2 dir)
+    (send p2 add-connection p1 dir)))
 
 (define peg%
   (class object%
@@ -125,47 +135,43 @@
 
     (define (get-dir x1 y1 x2 y2)
       (cond
-        [(= x1 x2) 'h]
-        [(= y1 y2) 'v]
+        [(= x1 x2) 'horizontal]
+        [(= y1 y2) 'vertical]
         [(or (and (> x1 x2) (< y1 y2))
              (and (< x1 x2) (> y1 y2)))
-         'f]
+         'forward]
         [(or (and (> x1 x2) (> y1 y2))
              (and (< x1 x2) (< y1 y2)))
-         'b]
+         'backward]
         [else #f]))
 
     (define/public (handle-click x y selected-peg)
       (and (= x row) (= y col)
            (cond
-        [filled?
-         (and selected-peg (send selected-peg unselect))
-         (set! selected? #t)
-         this]
-        [selected-peg
-         (define that-x (get-field row selected-peg))
-         (define that-y (get-field col selected-peg))
-         (define dir (get-dir x y that-x that-y))
-         (cond
-           [dir
-            (define this-connections (get-connections dir))
-            (define that-connections (send selected-peg get-connections dir))
-            (define common (set-intersect this-connections that-connections))
-            (cond
-              [(not (empty? common))
-               (define middle (first common))
-               (cond
-                 [(send middle is-filled?)
-                  (flip!) ;; fill this one ...
-                  (set! selected? #t) ;; select this one ...
-                  (send middle flip!) ;; remove the middle one
-                  (send selected-peg unselect)
-                  (send selected-peg flip!) ;; remove the one from before
-                  this]
-                 [else #f])]
-              [else #f])]
-           [else #f])]
-        [else #f])))
+             [filled?
+              (and selected-peg (send selected-peg unselect))
+              (set! selected? #t)
+              this]
+             [selected-peg
+              (define that-x (get-field row selected-peg))
+              (define that-y (get-field col selected-peg))
+              (define dir (get-dir x y that-x that-y))
+              (and dir
+                   (let* ([this-connections (get-connections dir)]
+                          [that-connections (send selected-peg get-connections dir)]
+                          [common (set-intersect this-connections that-connections)]
+                          [middle (and (not (empty? common)) (first common))]
+                          [should-remove? (and middle (send middle is-filled?))])
+                     (cond
+                       [should-remove?
+                        (flip!) ;; fill this one ...
+                        (set! selected? #t) ;; select this one ...
+                        (send middle flip!) ;; remove the middle one
+                        (send selected-peg unselect)
+                        (send selected-peg flip!) ;; remove the one from before
+                        this]
+                       [else #f])))]
+             [else #f])))
 
     (define/public (draw dc row-offset col-offset)
       (send dc set-pen "black" 3 'solid)

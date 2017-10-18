@@ -1,11 +1,15 @@
 #lang racket
 
 (require racket/syntax)
+(require syntax/readerr)
 
-(provide read-syntax)
+(provide (rename-out [parse-board read-syntax]))
 
-(define triangle
-  (open-input-string
+(module+ test
+  (require rackunit)
+
+  (define triangle
+    (open-input-string
 #<<>>
         O
        / \
@@ -17,115 +21,90 @@
  /   / \ / \   \
 @ - @ - @ - @ - @
 >>
-  ))
-
-#|
- Processing should return a list of the nodes,
- a list of the connections in the form of
- - (vertical node1 node2)
- - (horizontal node1 node2)
- - (forward node1 node2) (forward as in forward slash)
- - (back node1 node2)
-
- `X`s should be allowed to stand for both foreward and back
-  TODO: type checking or something to highlight useless edges 
-
-
-|#
-
-(define (read-syntax source in)
-  (parse-board source in))
-
-(struct peg (id filled?) #:transparent)
-(struct game (pegs connections) #:transparent)
-;; FIXME: these should represent connections between peg objects ...
-(struct connection (line column position) #:transparent)
-(struct horizontal connection () #:transparent)
-(struct vertical connection () #:transparent)
-(struct forward connection () #:transparent)
-(struct back connection () #:transparent)
+  )))
 
 (define (connector? c)
   (define CONNECTORS '(#\- #\/ #\\ #\| #\X #\+))
   (and (member c CONNECTORS) #t))
 
-(define (make-connections c line col pos)
-  (case c
-    [(#\-) (list (horizontal line col pos))]
-    [(#\|) (list (vertical line col pos))]
-    [(#\+) (list (horizontal line col pos)
-                 (vertical line col pos))]
-    [(#\/) (list (forward line col pos))]
-    [(#\\) (list (back line col pos))]
-    [(#\X) (list (forward line col pos)
-                 (back line col pos))]))
-
 (define (build-identifier sym source line column position span)
   (datum->syntax #f sym (list source line column position span)))
 
+(define (get-connections connector)
+  (case connector
+    [(#\|) '(vertical-connection)]
+    [(#\-) '(horizontal-connection)]
+    [(#\+) '(vertical-connection horizontal-connection)]
+    [(#\/) '(forward-connection)]
+    [(#\\) '(backward-connection)]
+    [(#\X) '(forward-connection backward-connection)]))
 
-(define (parse-board source
-                     in
-                     #:peg-char [peg-char #\@]
-                     #:hole-char [hole-char #\O])
-  (port-count-lines! in)
-  (define-values (start-line start-column start-pos) (port-next-location in))
-  (define-values (pegs peg-hash connections)
-    (let loop ([pegs '()]
-               [peg-hash (hash)]
-               [connections '()]
-               [tag 0])
-      (define-values (line column pos) (port-next-location in))
-      (define c (read-char in))
-      (cond
-        [(eof-object? c) (values (reverse pegs) peg-hash (reverse connections))]
-        [(char-whitespace? c)
-         (loop pegs peg-hash connections tag)]
-        [(connector? c)
-         (loop pegs peg-hash (append (make-connections c line column pos) connections) tag)]
-        [(or (eq? c peg-char) (eq? c hole-char))
-         (define id (build-identifier (format-symbol "~a~a" c tag) source line column pos 1))
-         (define spot (peg id (eq? c peg-char)))
-         (define peg-hash* (hash-set peg-hash (cons line column) id))
-         (loop (cons spot pegs) peg-hash* connections (add1 tag))]
-        [else (error 'parse-board "unexpected char in port: ~a" c)])))
-  (define-values (end-line end-column end-pos) (port-next-location in))
-  (define peg-stx
-    (for/list ([p (in-list pegs)])
-      (match-define (peg id filled?) p)
-      (datum->syntax #f `(define-peg ,id ,filled?))))
-  (define connections-stx
-    (for/list ([c (in-list connections)])
-      (match-define (connection line col pos) c)
-      (datum->syntax
-       #f
-       (cond
-         [(horizontal? c)
-          ;; the 2s here are annoying, but horizontal connections don't look good otherwise
-          ;; without more work
-          (define fst (hash-ref peg-hash (cons line (- col 2))))
-          (define snd (hash-ref peg-hash (cons line (+ col 2))))
-          `(connect-h ,fst ,snd)]
-         [(vertical? c)
-          (define fst (hash-ref peg-hash (cons (sub1 line) col)))
-          (define snd (hash-ref peg-hash (cons (add1 line) col)))
-          `(connect-v ,fst ,snd)]
-         [(forward? c)
-          (define fst (hash-ref peg-hash (cons (sub1 line) (add1 col))))
-          (define snd (hash-ref peg-hash (cons (add1 line) (sub1 col))))
-          `(connect-f ,fst ,snd)]
-         [(back? c)
-          (define fst (hash-ref peg-hash (cons (sub1 line) (sub1 col))))
-          (define snd (hash-ref peg-hash (cons (add1 line) (add1 col))))
-          `(connect-b ,fst ,snd)]))))
+(define (get-offsets connector)
+  (case connector
+    [(vertical-connection) (values 0 -1 0 1)]
+    [(horizontal-connection) (values -2 0 2 0)]
+    [(forward-connection) (values -1 1 1 -1)]
+    [(backward-connection) (values -1 -1 1 1)]))
+
+(define (to-identifier sym name line col pos)
+  (define stx-port (open-input-string (format "~s" sym)))
+  (port-count-lines! stx-port)
+  (set-port-next-location! stx-port line col pos)
+  (fixup-span (read-syntax name stx-port)))
+
+(define (fixup-span stx)
+  (cond
+    ;; work around what appears to be a bug in read-syntax or maybe ports
+    [(and (exact-nonnegative-integer? (syntax-column stx))
+          (exact-nonnegative-integer? (syntax-line stx)))
+     (datum->syntax
+      stx
+      (syntax->datum stx)
+      (list (syntax-source stx) (syntax-line stx)
+            (syntax-column stx) (syntax-position stx)
+            1)
+      stx)]
+    [else stx]))
+
+(define (make-connection-syntax c name line col pos)
+  (define connection (get-connections c))
+  (for/list ([connection (in-list (get-connections c))])
+    (define id (to-identifier connection name line col pos))
+    (define-values (dx1 dy1 dx2 dy2) (get-offsets connection))
+    `(,id ,(+ col dx1) ,(+ line dy1) ,(+ col dx2) ,(+ line dy2))))
+
+(define (parse-board source in #:peg-char [peg-char #\@] #:hole-char [hole-char #\O])
+  ;; TODO: should ensure peg-char and hole-char are not the same
   (define p-name (object-name in))
   (define name (if (path? p-name)
                    (let-values ([(base name dir?) (split-path p-name)])
                      (string->symbol
                       (path->string (path-replace-suffix name #""))))
                    'anonymous))
-  (datum->syntax #f `(,#'module ,name pegs ,@peg-stx ,@connections-stx)))
-    
-   
-  
-                     
+  (port-count-lines! in)
+  (define body
+    (let loop ([peg-stx null]
+               [connection-stx null]
+               [peg-count 0]
+               [hole-count 0])
+      (define-values (line col pos) (port-next-location in))
+      (define c (read-char in))
+      (cond
+        [(eof-object? c) (reverse (append connection-stx peg-stx))]
+        [(char-whitespace? c) (loop peg-stx connection-stx peg-count hole-count)]
+        [(connector? c)
+         (define new-connection-stx (make-connection-syntax c name line col pos))
+         (loop peg-stx (append new-connection-stx connection-stx) peg-count hole-count)]
+        [(eq? c peg-char)
+         (define id (to-identifier (format-symbol "~a~a" c peg-count) name line col pos))
+         (define new-peg-stx
+           `(define-peg ,id ,col ,line #t))
+         (loop (cons new-peg-stx peg-stx) connection-stx (add1 peg-count) hole-count)]
+        [(eq? c hole-char)
+         (define id (to-identifier (format-symbol "~a~a" c hole-count) name line col pos))
+         (define new-hole-stx
+           `(define-peg ,id ,col ,line #f))
+         (loop (cons new-hole-stx peg-stx) connection-stx peg-count (add1 hole-count))]
+        [else
+         (raise-read-error (format "Unexpected pegs character: ~a" c) source line col pos 1)])))
+  (datum->syntax #f `(,#'module ,name pegs ,@body)))
