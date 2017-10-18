@@ -31,7 +31,8 @@
 
 (define-syntax (make-connection stx)
   (syntax-parse stx
-    [(_ x1:integer y1:integer x2:integer y2:integer dir)
+    [(_ x1:integer y1:integer x2:integer y2:integer dir:id)
+     (define connection (syntax-e #'dir))
      (define table (syntax-parameter-value #'position-table))
      (define pos1 (cons (syntax-e #'x1) (syntax-e #'y1)))
      (define pos2 (cons (syntax-e #'x2) (syntax-e #'y2)))
@@ -39,19 +40,31 @@
        (hash-ref
         table
         pos1
-        (lambda () (raise-syntax-error 'make-connection "No peg found in connection"))))
+        (lambda () (raise-syntax-error connection "First peg missing in connection" stx))))
      (define peg2
        (hash-ref
         table
         pos2
-        (lambda () (raise-syntax-error 'make-connection "No peg found in connection"))))
-     #`(connect-pegs #,peg1 #,peg2 dir)]))
+        (lambda () (raise-syntax-error connection "Second peg missing in connection" stx))))
+     #`(connect-pegs #,peg1 #,peg2 'dir)]))
 
-(define-simple-macro (define-connection-macro name key)
-  (define-simple-macro (name x1:integer y1:integer x2:integer y2:integer)
-    (make-connection x1 y1 x2 y2 'key)))
+(define-syntax (forward-connection stx)
+  (syntax-parse stx
+    [(name x1:integer y1:integer x2:integer y2:integer)
+     (quasisyntax/loc #'name (make-connection x1 y1 x2 y2 name))]))
 
-(define-connection-macro forward-connection forward)
-(define-connection-macro backward-connection backward)
-(define-connection-macro horizontal-connection horizontal)
-(define-connection-macro vertical-connection vertical)
+(define-syntax (backward-connection stx)
+  (syntax-parse stx
+    [(name x1:integer y1:integer x2:integer y2:integer)
+     (quasisyntax/loc #'name (make-connection x1 y1 x2 y2 name))]))
+
+(define-syntax (horizontal-connection stx)
+  (syntax-parse stx
+    [(name x1:integer y1:integer x2:integer y2:integer)
+     (quasisyntax/loc #'name (make-connection x1 y1 x2 y2 name))]))
+
+(define-syntax (vertical-connection stx)
+  (syntax-parse stx
+    [(name x1:integer y1:integer x2:integer y2:integer)
+     (quasisyntax/loc #'name (make-connection x1 y1 x2 y2 name))]))
+

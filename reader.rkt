@@ -43,8 +43,8 @@
   (case connector
     [(vertical-connection) (values 0 -1 0 1)]
     [(horizontal-connection) (values -2 0 2 0)]
-    [(forward-connection) (values -1 1 1 -1)]
-    [(backward-connection) (values -1 -1 1 1)]))
+    [(forward-connection) (values 1 -1 -1 1)]
+    [(backward-connection) (values 1 1 -1 -1)]))
 
 (define (to-identifier sym name line col pos)
   (define stx-port (open-input-string (format "~s" sym)))

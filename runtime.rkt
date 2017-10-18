@@ -135,14 +135,14 @@
 
     (define (get-dir x1 y1 x2 y2)
       (cond
-        [(= x1 x2) 'horizontal]
-        [(= y1 y2) 'vertical]
+        [(= x1 x2) 'horizontal-connection]
+        [(= y1 y2) 'vertical-connection]
         [(or (and (> x1 x2) (< y1 y2))
              (and (< x1 x2) (> y1 y2)))
-         'forward]
+         'forward-connection]
         [(or (and (> x1 x2) (> y1 y2))
              (and (< x1 x2) (< y1 y2)))
-         'backward]
+         'backward-connection]
         [else #f]))
 
     (define/public (handle-click x y selected-peg)
