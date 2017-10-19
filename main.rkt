@@ -1,10 +1,10 @@
-#lang racket
+#lang typed/racket
 
 (require "transformers.rkt"
          "runtime.rkt")
 (provide (all-from-out "transformers.rkt")
          (all-from-out "runtime.rkt")
-         (all-from-out racket))
+         (all-from-out typed/racket))
 
 (module reader racket/base
   (require "reader.rkt")
