@@ -23,6 +23,8 @@
 
 (define game%/c
   (class/c
+   (field
+    [the-pegs (listof peg/c)])
    [add-peg (->m peg/c void?)]
    [run-game (->m void?)]
    [handle-button-down (->m integer? integer? void?)]))
@@ -33,6 +35,9 @@
     [row integer?]
     [col integer?]
     [filled? boolean?])
+   (field
+    [selected? boolean?]
+    [connections (hash/c connection/c (listof peg/c))])
    [add-connection (->m peg/c connection/c void?)]
    [get-connections (->m connection/c (listof peg/c))]
    [unselect (->m void?)]
@@ -87,8 +92,7 @@
 (define game%
   (class object%
     (super-new)
-    (define the-pegs '())
-    (define position-map #f)
+    (field [the-pegs null])
     (define selected #f)
     (define game-canvas #f)
     (define y-offset 0)
@@ -149,10 +153,8 @@
   (class object%
     (super-new)
     (init-field row col filled?)
-    (define selected? #f)
-    ;; a hash table that stores the connections to other pegs
-    ;; keyed by symbols
-    (define connections (make-hash))
+    (field [selected? #f]
+           [connections (make-hash)])
     (define/public (add-connection p dir)
       (hash-update! connections dir (λ (current) (set-add current p)) null))
 
