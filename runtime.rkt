@@ -1,100 +1,81 @@
-#lang typed/racket/no-check
+#lang racket/gui
 
-(provide current-game
-         initialize-game
-         run-game
-         make-peg
-         add-peg-to-game
-         forward-connection
-         backward-connection
-         horizontal-connection
-         vertical-connection)
+(provide
+ (contract-out
+  [current-game (parameter/c game/c)]
+  [initialize-game (-> game/c)]
+  [run-game (->* () (game/c) void?)]
+  [make-peg (-> integer? integer? boolean? peg/c)]
+  [add-peg-to-game (->* (peg/c) (game/c) void?)]
+  [forward-connection (-> peg/c peg/c void?)]
+  [backward-connection (-> peg/c peg/c void?)]
+  [horizontal-connection (-> peg/c peg/c void?)]
+  [vertical-connection (-> peg/c peg/c void?)]))
 
-(require typed/racket/gui)
+(define game/c (instanceof/c (recursive-contract game%/c)))
+(define peg/c (instanceof/c (recursive-contract peg%/c)))
 
-(define-type Game%
-  (Class
-   [add-peg (-> Peg Void)]
-   [run-game (-> Void)]
-   [handle-button-down (-> Integer Integer Void)]))
+(define connection/c
+  (or/c 'forward-connection
+        'backward-connection
+        'horizontal-connection
+        'vertical-connection))
 
-(define-type Peg%
-  (Class
+(define game%/c
+  (class/c
+   [add-peg (->m peg/c void?)]
+   [run-game (->m void?)]
+   [handle-button-down (->m integer? integer? void?)]))
+
+(define peg%/c
+  (class/c
    (init-field
-    [row Integer]
-    [col Integer]
-    [filled? Boolean])
-   [add-connection (-> Peg Connection Void)]
-   [get-connections (-> Connection (Setof Peg))]
-   [is-filled? (-> Boolean)]
-   [unselect (-> Void)]
-   [flip! (-> Void)]
-   [handle-click (-> Integer Integer (Option Peg) (Option Peg))]
-   [draw (-> (Instance DC<%>) Integer Integer Void)]
-   [draw-connections (-> (Instance DC<%>) Integer Integer Void)]))
+    [row integer?]
+    [col integer?]
+    [filled? boolean?])
+   [add-connection (->m peg/c connection/c void?)]
+   [get-connections (->m connection/c (listof peg/c))]
+   [unselect (->m void?)]
+   [flip! (->m void?)]
+   [is-filled? (->m boolean?)]
+   [handle-click (->m integer? integer? (or/c peg/c #f) (or/c peg/c #f))]
+   [draw (->m (is-a?/c dc<%>) integer? integer? void?)]
+   [draw-connections (->m (is-a?/c dc<%>) integer? integer? void?)]))
 
-(define-type Game (Instance Game%))
-(define-type Peg (Instance Peg%))
-
-(define-type Connection
-  (U 'forward-connection
-     'backward-connection
-     'horizontal-connection
-     'vertical-connection))
-
-(define-type Game-Canvas%
-  (Class #:implements/inits Canvas%
-         (init-field [game Game])))
-
-(: COORDINATE-SIZE Natural)
 (define COORDINATE-SIZE 30)
-
-(: OFFSET Natural)
 (define OFFSET (exact-floor (/ COORDINATE-SIZE 2)))
 
-(: current-game (Parameterof (Option Game)))
 (define current-game (make-parameter #f))
-
-(: initialize-game (-> Game))
 (define (initialize-game) (new game%))
-
-(: run-game (-> Game Void))
-(define (run-game game) (send game run-game))
-
-(: make-peg (-> Integer Integer Boolean Peg))
+(define (run-game [game (current-game)])
+  (if game
+      (send game run-game)
+      (error 'run-game "No Game Found")))
 (define (make-peg col row filled?)
   (new peg% [row row] [col col] [filled? filled?]))
-
-(: add-peg-to-game (-> Peg Void))
-(define (add-peg-to-game peg)
-  (send (assert (current-game)) add-peg peg))
-
-(: connect-pegs (-> Peg Peg Connection Void))
+(define (add-peg-to-game peg [game (current-game)])
+  (if game
+      (send game add-peg peg)
+      (error 'add-peg-to-game "No Game Found")))
 (define (connect-pegs p1 p2 dir)
   (begin
     (send p1 add-connection p2 dir)
     (send p2 add-connection p1 dir)))
-
 (define-syntax-rule (define-connection-functions connect-name ...)
   (begin
-    (: connect-name (-> Peg Peg Void))
-    ...
     (define (connect-name p1 p2)
       (connect-pegs p1 p2 'connect-name))
     ...))
-
 (define-connection-functions
   forward-connection
   backward-connection
   horizontal-connection
   vertical-connection)
 
-(: game-canvas% Game-Canvas%)
 (define game-canvas%
   (class canvas%
     (init-field game)
     (super-new)
-
     (define/override (on-subwindow-event window evt)
       (cond
         [(send evt button-down? 'left)
@@ -103,14 +84,11 @@
          #t]
         [else #f]))))
 
-(: game% Game%)
 (define game%
   (class object%
     (super-new)
-    (: the-pegs (Listof Peg))
     (define the-pegs '())
     (define position-map #f)
-    (: selected (Option Peg))
     (define selected #f)
     (define game-canvas #f)
     (define y-offset 0)
@@ -124,73 +102,59 @@
       (define row (+ y-offset (floor (sub1 (/ y COORDINATE-SIZE)))))
       (set! selected
             (or
-             (for/or : (Option Peg) ([p : Peg (in-list the-pegs)])
+             (for/or ([p (in-list the-pegs)])
                (send p handle-click row col selected))
              selected)))
 
     (define/public (run-game)
       (when (not (empty? the-pegs))
         (define-values (min-row max-row min-col max-col)
-          (for/fold : (Values (Option Integer)
-                              (Option Integer)
-                              (Option Integer)
-                              (Option Integer))
-            ([min-row : (Option Integer) #f]
-             [max-row : (Option Integer) #f]
-             [min-col : (Option Integer) #f]
-             [max-col : (Option Integer) #f])
-            ([peg : Peg (in-list the-pegs)])
+          (for/fold ([min-row #f]
+                     [max-row #f]
+                     [min-col #f]
+                     [max-col #f])
+                    ([peg (in-list the-pegs)])
             (define row (get-field row peg))
             (define col (get-field col peg)) 
             (values (if min-row (min min-row row) row)
                     (if max-row (max max-row row) row)
                     (if min-col (min min-col col) col)
                     (if max-col (max max-col col) col))))
-        (when (and min-row max-row min-col max-col)
-          
-          (set! y-offset min-row)
-          (set! x-offset min-col)
-        
-          (define num-rows (+ 3 (- max-row min-row)))
-          (define num-cols (+ 3 (- max-col min-col)))
-          (define the-width (* num-cols COORDINATE-SIZE))
-          (define the-height (* num-rows COORDINATE-SIZE))
-          (define the-frame
-            (new frame%
-                 [label "pegs"]
-                 [width the-width]
-                 [height the-height]
-                 [min-width (assert the-width positive?)]
-                 [min-height (assert the-height positive?)]))
-          (define the-canvas
-            (new game-canvas%
-                 [parent the-frame]
-                 [game this]
-                 [paint-callback
-                  (λ (canvas dc)
-                    (for ([peg (in-list the-pegs)])
-                      (send peg draw-connections dc min-row min-col))
-                    (for ([peg (in-list the-pegs)])
-                      (send peg draw dc min-row min-col)))]))
-          (send the-frame show #t))))))
+        (set! y-offset min-row)
+        (set! x-offset min-col)
+        (define num-rows (+ 3 (- max-row min-row)))
+        (define num-cols (+ 3 (- max-col min-col)))
+        (define the-width (* num-cols COORDINATE-SIZE))
+        (define the-height (* num-rows COORDINATE-SIZE))
+        (define the-frame
+          (new frame%
+               [label "pegs"]
+               [width the-width]
+               [height the-height]
+               [min-width the-width]
+               [min-height the-height]))
+        (define the-canvas
+          (new game-canvas%
+               [parent the-frame]
+               [game this]
+               [paint-callback
+                (λ (canvas dc)
+                  (for ([peg (in-list the-pegs)])
+                    (send peg draw-connections dc min-row min-col))
+                  (for ([peg (in-list the-pegs)])
+                    (send peg draw dc min-row min-col)))]))
+        (send the-frame show #t)))))
 
-(: peg% Peg%)
 (define peg%
   (class object%
     (super-new)
     (init-field row col filled?)
-    (: selected? Boolean)
     (define selected? #f)
     ;; a hash table that stores the connections to other pegs
     ;; keyed by symbols
-    (: connections (HashTable Connection (Setof Peg)))
     (define connections (make-hash))
     (define/public (add-connection p dir)
-      ((inst hash-update! Connection (Setof Peg))
-       connections
-       dir
-       (λ ([current : (Setof Peg)]) (set-add current p))
-       (inst set Peg)))
+      (hash-update! connections dir (λ (current) (set-add current p)) null))
 
     (define/public (unselect)
       (set! selected? #f))
@@ -200,12 +164,8 @@
     (define/public (is-filled?)
       filled?)
     (define/public (get-connections dir)
-      ((inst hash-ref Connection (Setof Peg) (Setof Peg))
-       connections
-       dir
-       (inst set Peg)))
+      (hash-ref connections dir null))
 
-    (: get-dir (-> Integer Integer Integer Integer (Option Connection)))
     (define/private (get-dir x1 y1 x2 y2)
       (cond
         [(= x1 x2) 'horizontal-connection]

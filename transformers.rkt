@@ -1,4 +1,4 @@
-#lang typed/racket/no-check
+#lang racket
 
 (provide (rename-out [pegs-module-begin #%module-begin])
          (except-out (all-defined-out) pegs-module-begin))
